@@ -22,6 +22,7 @@
 #define UART_ID uart0
 #define BAUD_RATE 115200
 
+#define SHAKE_THRESHOLD 1.2f
 #include <Fusion.h>
 
 const int MPU_ADDRESS = 0x68;
@@ -83,6 +84,8 @@ void mpu6050_task(void *p) {
 
     int16_t acceleration[3], gyro[3];
 
+    static TickType_t lastShakeTime = 0;
+
     while(1) {
         mpu6050_read_raw(acceleration, gyro);
 
@@ -101,8 +104,23 @@ void mpu6050_task(void *p) {
         FusionAhrsUpdateNoMagnetometer(&ahrs, gyroscope, accelerometer, SAMPLE_PERIOD);
 
         FusionEuler euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
+
+        //printf("x %0.2f, y %0.2f, z %0.2f\n", accelerometer.axis.x, accelerometer.axis.y, accelerometer.axis.z);
+
+        float magnitude = sqrt(accelerometer.axis.x * accelerometer.axis.x +
+                               accelerometer.axis.y * accelerometer.axis.y +
+                               accelerometer.axis.z * accelerometer.axis.z);
+
+        TickType_t currentTime = xTaskGetTickCount();
+
+        //printf("Magnitude: %0.2f\n", magnitude);
+        if (magnitude > SHAKE_THRESHOLD && (currentTime - lastShakeTime) > pdMS_TO_TICKS(3000)) {
+            int shakeDetected = 1;
+            xQueueSend(xQueueMPU, &shakeDetected, portMAX_DELAY);
+            lastShakeTime = currentTime;
+        }
         
-        printf("Roll %0.1f, Pitch %0.1f, Yaw %0.1f\n", euler.angle.roll, euler.angle.pitch, euler.angle.yaw);
+        //printf("Roll %0.1f, Pitch %0.1f, Yaw %0.1f\n", euler.angle.roll, euler.angle.pitch, euler.angle.yaw);
 
         //mpu_t dataX = {0, euler.angle.pitch};
         //xQueueSend(xQueueMPU, &dataX, portMAX_DELAY);
@@ -111,6 +129,16 @@ void mpu6050_task(void *p) {
         //xQueueSend(xQueueMPU, &dataY, portMAX_DELAY);
 
         vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+void shake_detector_task(void *p) {
+    int shakeDetected = 0;
+
+    while (1) {
+        if (xQueueReceive(xQueueMPU, &shakeDetected, 1)) {
+            printf("Shake detected\n");
+        }
     }
 }
 
@@ -232,7 +260,6 @@ void hc06_task(void *p) {
 }
 
 int main() {
-    
     xQueueAdc = xQueueCreate(32, sizeof(adc_t));
     xQueueBTN = xQueueCreate(64, sizeof(int));
     xQueueMPU = xQueueCreate(32, sizeof(mpu_t));
@@ -248,6 +275,7 @@ int main() {
     //xTaskCreate(hc06_task, "UART_Task 1", 4096, NULL, 1, NULL);
 
     xTaskCreate(mpu6050_task, "mpu6050_Task", 8192, NULL, 1, NULL);
+    xTaskCreate(shake_detector_task, "shake_detector_task", 4095, NULL, 1, NULL);
 
     //xTaskCreate(x_task, "x_task", 4095, NULL, 1, NULL);
     //xTaskCreate(y_task, "y_task", 4095, NULL, 1, NULL);
