@@ -22,7 +22,7 @@
 #define UART_ID uart0
 #define BAUD_RATE 115200
 
-#define SHAKE_THRESHOLD 1.2f
+#define SHAKE_THRESHOLD 1.3f
 #include <Fusion.h>
 
 const int MPU_ADDRESS = 0x68;
@@ -52,6 +52,9 @@ QueueHandle_t xQueueBTN;
 QueueHandle_t xQueueMPU;
 
 SemaphoreHandle_t xSemaphore_1;
+SemaphoreHandle_t xSemaphore_2;
+SemaphoreHandle_t xSemaphore_3;
+SemaphoreHandle_t xSemaphore_4;
 
 static void mpu6050_reset() {
     uint8_t buf[] = {0x6B, 0x00};
@@ -137,15 +140,29 @@ void shake_detector_task(void *p) {
 
     while (1) {
         if (xQueueReceive(xQueueMPU, &shakeDetected, 1)) {
-            printf("Shake detected\n");
+            //printf("Shake detected\n");
+            int result = 1;
+            adc_t data = {2, result};
+            xQueueSend(xQueueAdc, &data, 1);
+
         }
     }
 }
 
 void btn_callback(uint gpio, uint32_t events) {
-    if (events == 0x4) { // fall edge
+    if (events == 0x4 && gpio == BTN_1) { // fall edge
         xSemaphoreGiveFromISR(xSemaphore_1, 0);
     }
+    if (events == 0x4 && gpio == BTN_2) {
+        xSemaphoreGiveFromISR(xSemaphore_2, 0);
+    }
+    if (events == 0x4 && gpio == BTN_3) {
+        xSemaphoreGiveFromISR(xSemaphore_3, 0);
+    }
+    if (events == 0x4 && gpio == BTN_4) {
+        xSemaphoreGiveFromISR(xSemaphore_4, 0);
+    }
+    
 }
 
 void init_pins(){
@@ -186,7 +203,7 @@ void x_task(void *p) {
         adc_select_input(1);
         int result = (adc_read() - 2048)/8;
         if (abs(result) > DEADZONE){
-           adc_t data = {0, result};
+           adc_t data = {0, result/16};
            xQueueSend(xQueueAdc, &data, 1);
         }
         else {
@@ -206,7 +223,7 @@ void y_task(void *p) {
         adc_select_input(0);
         int result = (adc_read() - 2048)/8;
         if (abs(result) > DEADZONE){
-           adc_t data = {1, result};
+           adc_t data = {1, result/16};
            xQueueSend(xQueueAdc, &data, 1);
         }
         else{
@@ -218,12 +235,46 @@ void y_task(void *p) {
     }
 }
 
+void btn_task(void *p){
+    int gpio;
+    //printf("BTN Task\n");
+
+    while(1){
+        if (xSemaphoreTake(xSemaphore_1, 1 / portTICK_PERIOD_MS) == pdTRUE ){
+            //printf("BTN 1\n");
+            int result = 1;
+            adc_t data = {2, result};
+            xQueueSend(xQueueAdc, &data, 1);
+        }
+        if (xSemaphoreTake(xSemaphore_2, 1 / portTICK_PERIOD_MS) == pdTRUE ){
+            //printf("BTN 2\n");
+            int result = 1;
+            adc_t data = {3, result};
+            xQueueSend(xQueueAdc, &data, 1);
+        }
+        if (xSemaphoreTake(xSemaphore_3, 1 / portTICK_PERIOD_MS) == pdTRUE ){
+            //printf("BTN 3\n");
+            int result = 1;
+            adc_t data = {4, result};
+            xQueueSend(xQueueAdc, &data, 1);
+        }
+        if (xSemaphoreTake(xSemaphore_4, 1 / portTICK_PERIOD_MS) == pdTRUE ){
+            //printf("BTN 4\n");
+            int result = 1;
+            adc_t data = {5, result};
+            xQueueSend(xQueueAdc, &data, 1);
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
 void uart_task(void *p) {
     adc_t data; 
 
     while (1) {       
         if(xQueueReceive(xQueueAdc, &data, 1)){
-            int val = data.val/16;
+            int val = data.val;
             int msb = val >> 8;
             int lsb = val & 0xFF ;
     
@@ -232,18 +283,6 @@ void uart_task(void *p) {
             uart_putc_raw(uart0, msb);
             uart_putc_raw(uart0, -1);
         }
-    }
-}
-
-void btn_task(void *p){
-    int gpio;
-    printf("BTN Task\n");
-
-    while(1){
-        if (xSemaphoreTake(xSemaphore_1, 1 / portTICK_PERIOD_MS) == pdTRUE ){
-            printf("BTN 1\n");
-        }
-        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
@@ -266,6 +305,15 @@ int main() {
     xSemaphore_1 = xSemaphoreCreateBinary();
     if (xSemaphore_1 == NULL)
       printf("falha em criar o semaforo \n");
+    xSemaphore_2 = xSemaphoreCreateBinary();
+    if (xSemaphore_2 == NULL)
+      printf("falha em criar o semaforo \n");
+    xSemaphore_3 = xSemaphoreCreateBinary();
+    if (xSemaphore_3 == NULL)
+      printf("falha em criar o semaforo \n");
+    xSemaphore_4 = xSemaphoreCreateBinary();
+    if (xSemaphore_4 == NULL)
+      printf("falha em criar o semaforo \n");
 
     stdio_init_all();
     printf("Start RTOS \n");
@@ -277,12 +325,11 @@ int main() {
     xTaskCreate(mpu6050_task, "mpu6050_Task", 8192, NULL, 1, NULL);
     xTaskCreate(shake_detector_task, "shake_detector_task", 4095, NULL, 1, NULL);
 
-    //xTaskCreate(x_task, "x_task", 4095, NULL, 1, NULL);
-    //xTaskCreate(y_task, "y_task", 4095, NULL, 1, NULL);
-    //xTaskCreate(uart_task, "uart_task", 4095, NULL, 1, NULL);
+    xTaskCreate(x_task, "x_task", 4095, NULL, 1, NULL);
+    xTaskCreate(y_task, "y_task", 4095, NULL, 1, NULL);
+    xTaskCreate(uart_task, "uart_task", 4095, NULL, 1, NULL);
 
-    //xTaskCreate(btn_1_task, "BTN_Task 1", 256, NULL, 1, NULL);
-    //xTaskCreate(btn_task, "btn_task", 4095, NULL, 1, NULL);
+    xTaskCreate(btn_task, "btn_task", 4095, NULL, 1, NULL);
 
     vTaskStartScheduler();
 
