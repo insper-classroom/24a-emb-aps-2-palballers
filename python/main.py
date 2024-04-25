@@ -7,25 +7,24 @@ ser = serial.Serial('/dev/rfcomm0', 9600)
 # Siga esse tutorial https://community.element14.com/technologies/internet-of-things/b/blog/posts/standard-serial-over-bluetooth-on-windows-10 e mude o código acima para algo como: ser = serial.Serial('COMX', 9600) (onde X é o número desejado)
 
 # (Mais códigos aqui https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/input-event-codes.h?h=v4.7)
-buttons = [
+single = [
     uinput.REL_X,
     uinput.REL_Y,
-    uinput.BTN_LEFT,
-    uinput.BTN_RIGHT,
     uinput.REL_WHEEL,
 ]
 
-keyboard_keys = [
-    uinput.KEY_Q,
-    uinput.KEY_1,
+double = [
+    uinput.BTN_LEFT,
+    uinput.KEY_E,
+    uinput.KEY_C,
     uinput.KEY_2,
     uinput.KEY_3,
 ]
 
-total_keys = len(keyboard_keys)
+total_single = len(single)
+total_keys = len(double)
 # Criando gamepad emulado
-device = uinput.Device(buttons + keyboard_keys)
-
+device = uinput.Device(single + double)
 
 # Função para analisar os dados recebidos do dispositivo externo
 def parse_data(data):
@@ -36,13 +35,13 @@ def parse_data(data):
     return button, value
 
 def emulate_controller(button, value):
-    if button < 2:
-        device.emit(buttons[button], value)
-    elif button == 6:
-        device.emit(buttons[4], value)
-    elif button < 2 + total_keys:
-        device.emit(keyboard_keys[button - 2], value)
-        device.emit(keyboard_keys[button - 2], 0)
+    if button < total_single:
+        device.emit(single[button], value)
+    else:
+        device.emit(double[button - total_single], value)
+        device.emit(double[button - total_single], 0)
+    
+        
 try:
     # Pacote de sync
     while True:

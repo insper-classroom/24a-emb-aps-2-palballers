@@ -50,6 +50,9 @@ const int BTN_J = 22;
 const int ENCA_PIN = 17;
 const int ENCB_PIN = 16;
 
+const int HC_STATUS = 11;
+const int LED_STATUS = 10;
+
 QueueHandle_t xQueueHC;
 QueueHandle_t xQueueMPU;
 
@@ -242,27 +245,30 @@ void btn_task(void *p){
     while(1){
         if (xSemaphoreTake(xSemaphore_1, 1 / portTICK_PERIOD_MS) == pdTRUE ){
             //printf("BTN 1\n");
-            int result = 1;
-            adc_t data = {2, result};
+            adc_t data = {6, 1};
             xQueueSend(xQueueHC, &data, 1);
         }
         if (xSemaphoreTake(xSemaphore_2, 1 / portTICK_PERIOD_MS) == pdTRUE ){
             //printf("BTN 2\n");
-            int result = 1;
-            adc_t data = {3, result};
+            adc_t data = {7, 1};
             xQueueSend(xQueueHC, &data, 1);
         }
         if (xSemaphoreTake(xSemaphore_3, 1 / portTICK_PERIOD_MS) == pdTRUE ){
             //printf("BTN 3\n");
-            int result = 1;
-            adc_t data = {4, result};
+            adc_t data = {5, 1};
             xQueueSend(xQueueHC, &data, 1);
         }
         if (xSemaphoreTake(xSemaphore_4, 1 / portTICK_PERIOD_MS) == pdTRUE ){
             //printf("BTN 4\n");
-            int result = 1;
-            adc_t data = {5, result};
+            adc_t data = {3, 1};
             xQueueSend(xQueueHC, &data, 1);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            data.axis = 4;
+            xQueueSend(xQueueHC, &data, 1);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            data.axis = 5;
+            xQueueSend(xQueueHC, &data, 1);
+            vTaskDelay(pdMS_TO_TICKS(1000));
         }
         
         vTaskDelay(pdMS_TO_TICKS(50));
@@ -293,7 +299,7 @@ void rotate_task(void *p) {
     gpio_pull_up(ENCB_PIN);  // Enable internal pull-up
 
     adc_t data;
-    data.axis = 6;
+    data.axis = 2;
 
     while (1) {
         int8_t encoded = (gpio_get(ENCA_PIN) << 1) | gpio_get(ENCB_PIN);
@@ -350,6 +356,27 @@ void hc06_task(void *p) {
 }
 
 
+void hc_status_task(void *p) {
+    gpio_init(HC_STATUS);
+    gpio_set_dir(HC_STATUS, GPIO_IN);
+
+    gpio_init(LED_STATUS);
+    gpio_set_dir(LED_STATUS, GPIO_OUT);
+
+    while (1) {
+        if (!gpio_get(HC_STATUS)) {
+            gpio_put(LED_STATUS, 1);
+            vTaskDelay(pdMS_TO_TICKS(200));
+            gpio_put(LED_STATUS, 0);
+            vTaskDelay(pdMS_TO_TICKS(200));
+        } else {
+            gpio_put(LED_STATUS, 1);
+        }
+        vTaskDelay(pdMS_TO_TICKS(400));
+    }
+}
+
+
 int main() {
     xQueueHC = xQueueCreate(32, sizeof(adc_t));
     xQueueMPU = xQueueCreate(32, sizeof(mpu_t));
@@ -374,7 +401,7 @@ int main() {
 
     xTaskCreate(mpu6050_task, "mpu6050_Task", 8192, NULL, 1, NULL);
     xTaskCreate(shake_detector_task, "shake_detector_task", 4095, NULL, 1, NULL);
-
+ 
     xTaskCreate(x_task, "x_task", 4095, NULL, 1, NULL);
     xTaskCreate(y_task, "y_task", 4095, NULL, 1, NULL);
 
@@ -383,6 +410,7 @@ int main() {
     xTaskCreate(rotate_task, "rotate_task", 4096, NULL, 1, NULL);
 
     xTaskCreate(hc06_task, "UART_Task 1", 4096, NULL, 1, NULL);
+    xTaskCreate(hc_status_task, "hc_status_task", 4096, NULL, 1, NULL);
 
     vTaskStartScheduler();
 
