@@ -50,8 +50,7 @@ const int BTN_J = 22;
 const int ENCA_PIN = 17;
 const int ENCB_PIN = 16;
 
-QueueHandle_t xQueueAdc;
-QueueHandle_t xQueueBTN;
+QueueHandle_t xQueueHC;
 QueueHandle_t xQueueMPU;
 
 SemaphoreHandle_t xSemaphore_1;
@@ -146,7 +145,7 @@ void shake_detector_task(void *p) {
             //printf("Shake detected\n");
             int result = 1;
             adc_t data = {2, result};
-            xQueueSend(xQueueAdc, &data, 1);
+            xQueueSend(xQueueHC, &data, 1);
 
         }
     }
@@ -207,11 +206,11 @@ void x_task(void *p) {
         int result = (adc_read() - 2048)/8;
         if (abs(result) > DEADZONE){
            adc_t data = {0, result/16};
-           xQueueSend(xQueueAdc, &data, 1);
+           xQueueSend(xQueueHC, &data, 1);
         }
         else {
             adc_t data = {0, 0};
-            xQueueSend(xQueueAdc, &data, 1);
+            xQueueSend(xQueueHC, &data, 1);
         }
 
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -227,11 +226,11 @@ void y_task(void *p) {
         int result = (adc_read() - 2048)/8;
         if (abs(result) > DEADZONE){
            adc_t data = {1, result/16};
-           xQueueSend(xQueueAdc, &data, 1);
+           xQueueSend(xQueueHC, &data, 1);
         }
         else{
             adc_t data = {1, 0};
-            xQueueSend(xQueueAdc, &data, 1);
+            xQueueSend(xQueueHC, &data, 1);
         }
 
         vTaskDelay(pdMS_TO_TICKS(20));
@@ -245,25 +244,25 @@ void btn_task(void *p){
             //printf("BTN 1\n");
             int result = 1;
             adc_t data = {2, result};
-            xQueueSend(xQueueAdc, &data, 1);
+            xQueueSend(xQueueHC, &data, 1);
         }
         if (xSemaphoreTake(xSemaphore_2, 1 / portTICK_PERIOD_MS) == pdTRUE ){
             //printf("BTN 2\n");
             int result = 1;
             adc_t data = {3, result};
-            xQueueSend(xQueueAdc, &data, 1);
+            xQueueSend(xQueueHC, &data, 1);
         }
         if (xSemaphoreTake(xSemaphore_3, 1 / portTICK_PERIOD_MS) == pdTRUE ){
             //printf("BTN 3\n");
             int result = 1;
             adc_t data = {4, result};
-            xQueueSend(xQueueAdc, &data, 1);
+            xQueueSend(xQueueHC, &data, 1);
         }
         if (xSemaphoreTake(xSemaphore_4, 1 / portTICK_PERIOD_MS) == pdTRUE ){
             //printf("BTN 4\n");
             int result = 1;
             adc_t data = {5, result};
-            xQueueSend(xQueueAdc, &data, 1);
+            xQueueSend(xQueueHC, &data, 1);
         }
         
         vTaskDelay(pdMS_TO_TICKS(50));
@@ -278,8 +277,6 @@ void rotate_task(void *p) {
         0,  1, -1,  0
     };
     uint8_t enc_state = 0; // Current state of the encoder
-    int8_t last_encoded = 0; // Last encoded state
-    int8_t encoded;
     int sum;
     int last_sum = 0; // Last non-zero sum to filter out noise
     int debounce_counter = 0; // Debounce counter
@@ -296,29 +293,27 @@ void rotate_task(void *p) {
     gpio_pull_up(ENCA_PIN);  // Enable internal pull-up
     gpio_pull_up(ENCB_PIN);  // Enable internal pull-up
 
-    last_encoded = (gpio_get(ENCA_PIN) << 1) | gpio_get(ENCB_PIN);
-
     adc_t data;
     data.axis = 6;
 
     while (1) {
-        encoded = (gpio_get(ENCA_PIN) << 1) | gpio_get(ENCB_PIN);
+        int8_t encoded = (gpio_get(ENCA_PIN) << 1) | gpio_get(ENCB_PIN);
         enc_state = (enc_state << 2) | encoded;
-        sum = state_table[enc_state & 0x0f];
+        int sum = state_table[enc_state & 0x0f];
 
         if (sum != 0) {
             if (sum == last_sum) {
                 if (++debounce_counter > 1) {  // Check if the same movement is read consecutively
                     if (sum == 1) {
                         data.val = 0;
-                        xQueueSend(xQueueAdc, &data, 1);
+                        xQueueSend(xQueueHC, &data, 1);
                         data.val = 1;
-                        xQueueSend(xQueueAdc, &data, 1);
+                        xQueueSend(xQueueHC, &data, 1);
                     } else if (sum == -1) {
                         data.val = -1;
-                        xQueueSend(xQueueAdc, &data, 1);
+                        xQueueSend(xQueueHC, &data, 1);
                         data.val = 0;
-                        xQueueSend(xQueueAdc, &data, 1);
+                        xQueueSend(xQueueHC, &data, 1);
                     }
                     debounce_counter = 0;  // Reset the counter after confirming the direction
                 }
@@ -341,7 +336,7 @@ void hc06_task(void *p) {
     adc_t data;
 
     while (1) {
-        if(xQueueReceive(xQueueAdc, &data, 1)){
+        if(xQueueReceive(xQueueHC, &data, 1)){
             int val = data.val;
             int msb = val >> 8;
             int lsb = val & 0xFF;
@@ -357,11 +352,10 @@ void hc06_task(void *p) {
 
 
 int main() {
-    xQueueAdc = xQueueCreate(32, sizeof(adc_t));
-    xQueueBTN = xQueueCreate(64, sizeof(int));
+    xQueueHC = xQueueCreate(32, sizeof(adc_t));
     xQueueMPU = xQueueCreate(32, sizeof(mpu_t));
-    xSemaphore_1 = xSemaphoreCreateBinary();
 
+    xSemaphore_1 = xSemaphoreCreateBinary();
     if (xSemaphore_1 == NULL)
       printf("falha em criar o semaforo \n");
     xSemaphore_2 = xSemaphoreCreateBinary();
