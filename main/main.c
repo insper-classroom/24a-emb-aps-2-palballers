@@ -20,7 +20,7 @@
 #define DEADZONE 30
 
 #define UART_ID uart0
-#define BAUD_RATE 115200
+#define BAUD_RATE 9600
 
 #define SHAKE_THRESHOLD 1.3f
 #include <Fusion.h>
@@ -46,6 +46,9 @@ const int BTN_2 = 13;
 const int BTN_3 = 14;
 const int BTN_4 = 15;
 const int BTN_J = 22;
+
+const int ENCA_PIN = 17;
+const int ENCB_PIN = 16;
 
 QueueHandle_t xQueueAdc;
 QueueHandle_t xQueueBTN;
@@ -236,8 +239,6 @@ void y_task(void *p) {
 }
 
 void btn_task(void *p){
-    int gpio;
-    //printf("BTN Task\n");
 
     while(1){
         if (xSemaphoreTake(xSemaphore_1, 1 / portTICK_PERIOD_MS) == pdTRUE ){
@@ -269,20 +270,65 @@ void btn_task(void *p){
     }
 }
 
-void uart_task(void *p) {
-    adc_t data; 
+void rotate_task(void *p) {
+    static const int8_t state_table[] = {
+        0, -1,  1,  0,
+        1,  0,  0, -1,
+        -1,  0,  0,  1,
+        0,  1, -1,  0
+    };
+    uint8_t enc_state = 0; // Current state of the encoder
+    int8_t last_encoded = 0; // Last encoded state
+    int8_t encoded;
+    int sum;
+    int last_sum = 0; // Last non-zero sum to filter out noise
+    int debounce_counter = 0; // Debounce counter
 
-    while (1) {       
-        if(xQueueReceive(xQueueAdc, &data, 1)){
-            int val = data.val;
-            int msb = val >> 8;
-            int lsb = val & 0xFF ;
-    
-            uart_putc_raw(uart0, data.axis);
-            uart_putc_raw(uart0, lsb);
-            uart_putc_raw(uart0, msb);
-            uart_putc_raw(uart0, -1);
+    //adc_t data;
+
+    // Initialize GPIO pins for the encoder
+    gpio_init(ENCA_PIN);
+    gpio_init(ENCB_PIN);
+
+    gpio_set_dir(ENCA_PIN, GPIO_IN);
+    gpio_set_dir(ENCB_PIN, GPIO_IN);
+
+    gpio_pull_up(ENCA_PIN);  // Enable internal pull-up
+    gpio_pull_up(ENCB_PIN);  // Enable internal pull-up
+
+    last_encoded = (gpio_get(ENCA_PIN) << 1) | gpio_get(ENCB_PIN);
+
+    adc_t data;
+    data.axis = 6;
+
+    while (1) {
+        encoded = (gpio_get(ENCA_PIN) << 1) | gpio_get(ENCB_PIN);
+        enc_state = (enc_state << 2) | encoded;
+        sum = state_table[enc_state & 0x0f];
+
+        if (sum != 0) {
+            if (sum == last_sum) {
+                if (++debounce_counter > 1) {  // Check if the same movement is read consecutively
+                    if (sum == 1) {
+                        data.val = 0;
+                        xQueueSend(xQueueAdc, &data, 1);
+                        data.val = 1;
+                        xQueueSend(xQueueAdc, &data, 1);
+                    } else if (sum == -1) {
+                        data.val = -1;
+                        xQueueSend(xQueueAdc, &data, 1);
+                        data.val = 0;
+                        xQueueSend(xQueueAdc, &data, 1);
+                    }
+                    debounce_counter = 0;  // Reset the counter after confirming the direction
+                }
+            } else {
+                debounce_counter = 0;  // Reset the counter if the direction changes
+            }
+            last_sum = sum;  // Update last_sum to the current sum
         }
+
+        vTaskDelay(pdMS_TO_TICKS(1)); // Poll every 1 ms to improve responsiveness
     }
 }
 
@@ -290,19 +336,32 @@ void hc06_task(void *p) {
     uart_init(HC06_UART_ID, HC06_BAUD_RATE);
     gpio_set_function(HC06_TX_PIN, GPIO_FUNC_UART);
     gpio_set_function(HC06_RX_PIN, GPIO_FUNC_UART);
-    hc06_init("aps2_legal", "1234");
+    hc06_init("PALBALLERS", "1234");
 
-    while (true) {
-        uart_puts(HC06_UART_ID, "OLAAA ");
-        vTaskDelay(pdMS_TO_TICKS(100));
+    adc_t data;
+
+    while (1) {
+        if(xQueueReceive(xQueueAdc, &data, 1)){
+            int val = data.val;
+            int msb = val >> 8;
+            int lsb = val & 0xFF;
+    
+            uart_putc_raw(HC06_UART_ID, data.axis);
+            uart_putc_raw(HC06_UART_ID, lsb);
+            uart_putc_raw(HC06_UART_ID, msb);
+            uart_putc_raw(HC06_UART_ID, -1);
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
+
 
 int main() {
     xQueueAdc = xQueueCreate(32, sizeof(adc_t));
     xQueueBTN = xQueueCreate(64, sizeof(int));
     xQueueMPU = xQueueCreate(32, sizeof(mpu_t));
     xSemaphore_1 = xSemaphoreCreateBinary();
+
     if (xSemaphore_1 == NULL)
       printf("falha em criar o semaforo \n");
     xSemaphore_2 = xSemaphoreCreateBinary();
@@ -320,16 +379,17 @@ int main() {
     init_pins();
     adc_init();
 
-    //xTaskCreate(hc06_task, "UART_Task 1", 4096, NULL, 1, NULL);
-
     xTaskCreate(mpu6050_task, "mpu6050_Task", 8192, NULL, 1, NULL);
     xTaskCreate(shake_detector_task, "shake_detector_task", 4095, NULL, 1, NULL);
 
     xTaskCreate(x_task, "x_task", 4095, NULL, 1, NULL);
     xTaskCreate(y_task, "y_task", 4095, NULL, 1, NULL);
-    xTaskCreate(uart_task, "uart_task", 4095, NULL, 1, NULL);
 
     xTaskCreate(btn_task, "btn_task", 4095, NULL, 1, NULL);
+
+    xTaskCreate(rotate_task, "rotate_task", 4096, NULL, 1, NULL);
+
+    xTaskCreate(hc06_task, "UART_Task 1", 4096, NULL, 1, NULL);
 
     vTaskStartScheduler();
 
