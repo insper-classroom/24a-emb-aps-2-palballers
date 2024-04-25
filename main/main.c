@@ -277,7 +277,6 @@ void rotate_task(void *p) {
         0,  1, -1,  0
     };
     uint8_t enc_state = 0; // Current state of the encoder
-    int sum;
     int last_sum = 0; // Last non-zero sum to filter out noise
     int debounce_counter = 0; // Debounce counter
 
