@@ -36,3 +36,32 @@ conectado no equipamento e não recebe mais comandos.
 Para conectar o bluetooth no linux usar os passos descritos no site:
 
 - https://marcqueiroz.wordpress.com/aventuras-com-arduino/configurando-hc-06-bluetooth-module-device-no-ubuntu-12-04/
+
+## Descrição do Projeto
+
+xQueueMPU: Queue que manda informações sobre a detecção de vibração
+xQueueHC: Queue que manda informações para o HC
+xSemaphore_1: Semáforo para o botão 1
+xSemaphore_2: Semáforo para o botão 2 
+xSemaphore_3: Semáforo para o botão 3
+xSemaphore_4: Semáforo para o botão 4
+xSemaphore_5: Semáforo para o botão 5
+xSemaphore_6: Semáforo para o botão 6
+
+btn_callback: IRS que controla a ativação dos semáforos de cada um dos 6 botões
+mpu6050_task: task que faz a leitura do MPU e envia para shake_detector_task
+shake_detector_task: task que checa se houve vibração no MPU
+x_task: task do joystick para o eixo x
+y_task: task do joystick para o eixo y
+btn_task: task que ativa quando botões são apertados
+rotate_task: task que trata a rotação do scroll
+hc06_task: task que envia as informações pelo bluetooth
+hc_status_task: task que checa se o bluetooth está conectado
+
+2  Q  Mb
+12 11 10
+
+3  E  Ma
+15 14 13
+
+

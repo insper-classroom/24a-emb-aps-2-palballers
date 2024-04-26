@@ -19,10 +19,7 @@
 
 #define DEADZONE 30
 
-#define UART_ID uart0
-#define BAUD_RATE 9600
-
-#define SHAKE_THRESHOLD 1.3f
+#define SHAKE_THRESHOLD 2.3f
 #include <Fusion.h>
 
 const int MPU_ADDRESS = 0x68;
@@ -42,12 +39,12 @@ typedef struct adc {
 } adc_t;
 
 
-const int BTN_1 = 10;
-const int BTN_2 = 11;
-const int BTN_3 = 12;
-const int BTN_4 = 13;
-const int BTN_5 = 14;
-const int BTN_6 = 15; 
+const int BTN_3 = 10; // Mb
+const int BTN_2 = 11; // Q
+const int BTN_1 = 12; // 2
+const int BTN_6 = 13; // Ma
+const int BTN_5 = 14; // E
+const int BTN_4 = 15; // 3
 
 const int ENCA_PIN = 17;
 const int ENCB_PIN = 16;
@@ -83,7 +80,6 @@ static void mpu6050_read_raw(int16_t accel[3], int16_t gyro[3]) {
 }
 
 void mpu6050_task(void *p) {
-    printf("Start MPU task");
     i2c_init(i2c_default, 400 * 1000);
     gpio_set_function(I2C_SDA_GPIO, GPIO_FUNC_I2C);
     gpio_set_function(I2C_SCL_GPIO, GPIO_FUNC_I2C);
@@ -117,28 +113,17 @@ void mpu6050_task(void *p) {
 
         FusionEuler euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
 
-        //printf("x %0.2f, y %0.2f, z %0.2f\n", accelerometer.axis.x, accelerometer.axis.y, accelerometer.axis.z);
-
         float magnitude = sqrt(accelerometer.axis.x * accelerometer.axis.x +
                                accelerometer.axis.y * accelerometer.axis.y +
                                accelerometer.axis.z * accelerometer.axis.z);
 
         TickType_t currentTime = xTaskGetTickCount();
 
-        //printf("Magnitude: %0.2f\n", magnitude);
         if (magnitude > SHAKE_THRESHOLD && (currentTime - lastShakeTime) > pdMS_TO_TICKS(3000)) {
             int shakeDetected = 1;
             xQueueSend(xQueueMPU, &shakeDetected, portMAX_DELAY);
             lastShakeTime = currentTime;
         }
-        
-        //printf("Roll %0.1f, Pitch %0.1f, Yaw %0.1f\n", euler.angle.roll, euler.angle.pitch, euler.angle.yaw);
-
-        //mpu_t dataX = {0, euler.angle.pitch};
-        //xQueueSend(xQueueMPU, &dataX, portMAX_DELAY);
-
-        //mpu_t dataY = {1, -euler.angle.roll};
-        //xQueueSend(xQueueMPU, &dataY, portMAX_DELAY);
 
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -149,7 +134,6 @@ void shake_detector_task(void *p) {
 
     while (1) {
         if (xQueueReceive(xQueueMPU, &shakeDetected, 1)) {
-            //printf("Shake detected\n");
             int result = 1;
             adc_t data = {8, result};
             xQueueSend(xQueueHC, &data, 1);
@@ -232,11 +216,11 @@ void x_task(void *p) {
         adc_select_input(1);
         int result = (adc_read() - 2048)/8;
         if (abs(result) > DEADZONE){
-           adc_t data = {0, result/16};
+           adc_t data = {1, -result/16};
            xQueueSend(xQueueHC, &data, 1);
         }
         else {
-            adc_t data = {0, 0};
+            adc_t data = {1, 0};
             xQueueSend(xQueueHC, &data, 1);
         }
 
@@ -252,11 +236,11 @@ void y_task(void *p) {
         adc_select_input(0);
         int result = (adc_read() - 2048)/8;
         if (abs(result) > DEADZONE){
-           adc_t data = {1, result/16};
+           adc_t data = {0, result/16};
            xQueueSend(xQueueHC, &data, 1);
         }
         else{
-            adc_t data = {1, 0};
+            adc_t data = {0, 0};
             xQueueSend(xQueueHC, &data, 1);
         }
 
@@ -266,43 +250,58 @@ void y_task(void *p) {
 
 void btn_task(void *p){
 
+// 2  Q  Mb
+// 12 11 10
+
+// 3  E  Ma
+// 15 14 13
+
+// single = [
+//     uinput.REL_X,
+//     uinput.REL_Y,
+//     uinput.REL_WHEEL,
+// ]
+
+// double = [
+//     uinput.BTN_LEFT, 3
+//     uinput.KEY_E, 4
+//     uinput.KEY_C, 5
+//     uinput.KEY_2, 6
+//     uinput.KEY_3, 7
+//     uinput.KEY_Q 8
+// ]
+
     while(1){
         if (xSemaphoreTake(xSemaphore_1, 1 / portTICK_PERIOD_MS) == pdTRUE ){
-            //printf("BTN 1\n");
-            adc_t data = {6, 1};
+            adc_t data = {6, 1}; // APERTAR 2
             xQueueSend(xQueueHC, &data, 1);
         }
         if (xSemaphoreTake(xSemaphore_2, 1 / portTICK_PERIOD_MS) == pdTRUE ){
-            //printf("BTN 2\n");
-            adc_t data = {7, 1};
+            adc_t data = {8, 1}; // APERTAR Q
             xQueueSend(xQueueHC, &data, 1);
         }
         if (xSemaphoreTake(xSemaphore_3, 1 / portTICK_PERIOD_MS) == pdTRUE ){
-            //printf("BTN 3\n");
-            adc_t data = {5, 1};
+            adc_t data = {3, 1}; // APERTAR Mb
             xQueueSend(xQueueHC, &data, 1);
         }
         if (xSemaphoreTake(xSemaphore_4, 1 / portTICK_PERIOD_MS) == pdTRUE ){
-            //printf("BTN 4\n");
-            adc_t data = {3, 1};
+            adc_t data = {7, 1}; // APERTAR 3
             xQueueSend(xQueueHC, &data, 1);
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            data.axis = 4;
-            xQueueSend(xQueueHC, &data, 1);
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            data.axis = 5;
-            xQueueSend(xQueueHC, &data, 1);
-            vTaskDelay(pdMS_TO_TICKS(1000));
         }
         if (xSemaphoreTake(xSemaphore_5, 1 / portTICK_PERIOD_MS) == pdTRUE ){
-            //printf("BTN 3\n");
-            adc_t data = {5, 1};
+            adc_t data = {4, 1}; // APERTAR E
             xQueueSend(xQueueHC, &data, 1);
         }
         if (xSemaphoreTake(xSemaphore_6, 1 / portTICK_PERIOD_MS) == pdTRUE ){
-            //printf("BTN 3\n");
-            adc_t data = {5, 1};
+            adc_t data = {3, 1}; // APERTAR Mb
             xQueueSend(xQueueHC, &data, 1);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            data.axis = 4; // APERTAR E
+            xQueueSend(xQueueHC, &data, 1);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            data.axis = 5; // APERTAR C
+            xQueueSend(xQueueHC, &data, 1);
+            vTaskDelay(pdMS_TO_TICKS(1000));
         }
         
         vTaskDelay(pdMS_TO_TICKS(50));
@@ -316,21 +315,18 @@ void rotate_task(void *p) {
         -1,  0,  0,  1,
         0,  1, -1,  0
     };
-    uint8_t enc_state = 0; // Current state of the encoder
-    int last_sum = 0; // Last non-zero sum to filter out noise
-    int debounce_counter = 0; // Debounce counter
+    uint8_t enc_state = 0;
+    int last_sum = 0;
+    int debounce_counter = 0;
 
-    //adc_t data;
-
-    // Initialize GPIO pins for the encoder
     gpio_init(ENCA_PIN);
     gpio_init(ENCB_PIN);
 
     gpio_set_dir(ENCA_PIN, GPIO_IN);
     gpio_set_dir(ENCB_PIN, GPIO_IN);
 
-    gpio_pull_up(ENCA_PIN);  // Enable internal pull-up
-    gpio_pull_up(ENCB_PIN);  // Enable internal pull-up
+    gpio_pull_up(ENCA_PIN);
+    gpio_pull_up(ENCB_PIN);
 
     adc_t data;
     data.axis = 2;
@@ -342,7 +338,7 @@ void rotate_task(void *p) {
 
         if (sum != 0) {
             if (sum == last_sum) {
-                if (++debounce_counter > 1) {  // Check if the same movement is read consecutively
+                if (++debounce_counter > 1) {
                     if (sum == 1) {
                         data.val = 0;
                         xQueueSend(xQueueHC, &data, 1);
@@ -354,15 +350,15 @@ void rotate_task(void *p) {
                         data.val = 0;
                         xQueueSend(xQueueHC, &data, 1);
                     }
-                    debounce_counter = 0;  // Reset the counter after confirming the direction
+                    debounce_counter = 0; 
                 }
             } else {
-                debounce_counter = 0;  // Reset the counter if the direction changes
+                debounce_counter = 0;
             }
-            last_sum = sum;  // Update last_sum to the current sum
+            last_sum = sum;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(1)); // Poll every 1 ms to improve responsiveness
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
@@ -435,7 +431,6 @@ int main() {
       printf("falha em criar o semaforo \n");
     
     stdio_init_all();
-    printf("Start RTOS \n");
     init_pins();
     adc_init();
 
