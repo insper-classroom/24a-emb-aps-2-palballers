@@ -41,17 +41,19 @@ typedef struct adc {
     int val;
 } adc_t;
 
-const int BTN_1 = 12;
-const int BTN_2 = 13;
-const int BTN_3 = 14;
-const int BTN_4 = 15;
-const int BTN_J = 22;
+
+const int BTN_1 = 10;
+const int BTN_2 = 11;
+const int BTN_3 = 12;
+const int BTN_4 = 13;
+const int BTN_5 = 14;
+const int BTN_6 = 15; 
 
 const int ENCA_PIN = 17;
 const int ENCB_PIN = 16;
 
-const int HC_STATUS = 11;
-const int LED_STATUS = 10;
+const int HC_STATUS = 18;
+const int LED_STATUS = 19;
 
 QueueHandle_t xQueueHC;
 QueueHandle_t xQueueMPU;
@@ -60,6 +62,8 @@ SemaphoreHandle_t xSemaphore_1;
 SemaphoreHandle_t xSemaphore_2;
 SemaphoreHandle_t xSemaphore_3;
 SemaphoreHandle_t xSemaphore_4;
+SemaphoreHandle_t xSemaphore_5;
+SemaphoreHandle_t xSemaphore_6;
 
 static void mpu6050_reset() {
     uint8_t buf[] = {0x6B, 0x00};
@@ -147,7 +151,7 @@ void shake_detector_task(void *p) {
         if (xQueueReceive(xQueueMPU, &shakeDetected, 1)) {
             //printf("Shake detected\n");
             int result = 1;
-            adc_t data = {2, result};
+            adc_t data = {8, result};
             xQueueSend(xQueueHC, &data, 1);
 
         }
@@ -166,6 +170,12 @@ void btn_callback(uint gpio, uint32_t events) {
     }
     if (events == 0x4 && gpio == BTN_4) {
         xSemaphoreGiveFromISR(xSemaphore_4, 0);
+    }
+    if (events == 0x4 && gpio == BTN_5) {
+        xSemaphoreGiveFromISR(xSemaphore_5, 0);
+    }
+    if (events == 0x4 && gpio == BTN_6) {
+        xSemaphoreGiveFromISR(xSemaphore_6, 0);
     }
     
 }
@@ -187,6 +197,14 @@ void init_pins(){
     gpio_set_dir(BTN_4, GPIO_IN);
     gpio_pull_up(BTN_4);
 
+    gpio_init(BTN_5);
+    gpio_set_dir(BTN_5, GPIO_IN);
+    gpio_pull_up(BTN_5);
+
+    gpio_init(BTN_6);
+    gpio_set_dir(BTN_6, GPIO_IN);
+    gpio_pull_up(BTN_6);
+
     gpio_set_irq_enabled_with_callback(
         BTN_1, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &btn_callback);
 
@@ -198,6 +216,12 @@ void init_pins(){
 
     gpio_set_irq_enabled(
         BTN_4, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+
+    gpio_set_irq_enabled(
+        BTN_5, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+
+    gpio_set_irq_enabled(
+        BTN_6, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
 }
 
 void x_task(void *p) {
@@ -269,6 +293,16 @@ void btn_task(void *p){
             data.axis = 5;
             xQueueSend(xQueueHC, &data, 1);
             vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+        if (xSemaphoreTake(xSemaphore_5, 1 / portTICK_PERIOD_MS) == pdTRUE ){
+            //printf("BTN 3\n");
+            adc_t data = {5, 1};
+            xQueueSend(xQueueHC, &data, 1);
+        }
+        if (xSemaphoreTake(xSemaphore_6, 1 / portTICK_PERIOD_MS) == pdTRUE ){
+            //printf("BTN 3\n");
+            adc_t data = {5, 1};
+            xQueueSend(xQueueHC, &data, 1);
         }
         
         vTaskDelay(pdMS_TO_TICKS(50));
@@ -393,7 +427,13 @@ int main() {
     xSemaphore_4 = xSemaphoreCreateBinary();
     if (xSemaphore_4 == NULL)
       printf("falha em criar o semaforo \n");
-
+    xSemaphore_5 = xSemaphoreCreateBinary();
+    if (xSemaphore_5 == NULL)
+      printf("falha em criar o semaforo \n");
+    xSemaphore_6 = xSemaphoreCreateBinary();
+    if (xSemaphore_6 == NULL)
+      printf("falha em criar o semaforo \n");
+    
     stdio_init_all();
     printf("Start RTOS \n");
     init_pins();

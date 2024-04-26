@@ -19,6 +19,7 @@ double = [
     uinput.KEY_C,
     uinput.KEY_2,
     uinput.KEY_3,
+    uinput.KEY_Q
 ]
 
 total_single = len(single)
